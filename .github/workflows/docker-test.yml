@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
 
     - name: Create and build docker (CVE-2016-3714)
-      run: python3 decret.py -r jessie -n 2016-3714 -s
+      run: python3 decret.py -r jessie -n 2016-3714 -s --dont-run
 
     - name: Test vuln (CVE-2016-3714)
       run: |
