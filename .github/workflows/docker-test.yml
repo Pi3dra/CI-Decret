@@ -30,6 +30,6 @@ jobs:
 
     - name: Test vuln (CVE-2016-3714)
       run: |
-        docker run jessie/cve-2016-3714 sudo apt-get install curl
+        docker run jessie/cve-2016-3714 apt-get install curl wget
         docker run jessie/cve-2016-3714 convert 'https://example.com";ls "-la' out.png
         
