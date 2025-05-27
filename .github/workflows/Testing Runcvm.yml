@@ -28,7 +28,7 @@ jobs:
     - name: Install RunCVM
       run: | 
           curl -s -o - https://raw.githubusercontent.com/newsnowlabs/runcvm/main/runcvm-scripts/runcvm-install-runtime.sh 
-          sudo sh
+          sudo bash
 
     - name: Build docker (CVE-2016-3714)
       run: docker build -t dpipe ./examples/
