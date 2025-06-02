@@ -40,6 +40,7 @@ DEBIAN_RELEASES = [
     "stretch",
     "buster",
     "bullseye",
+    "bookworm",
 ]
 
 LATEST_RELEASE = DEBIAN_RELEASES[-1]

@@ -15,7 +15,7 @@ RUN apt update && \
     echo "RESUME=none" >/etc/initramfs-tools/conf.d/resume && \
     update-initramfs -u 
 
-RUN apt install -y gcc git 
+RUN apt install -y gcc git expect
 
 RUN useradd -m -U user
 
