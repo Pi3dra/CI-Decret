@@ -1,5 +1,6 @@
 from decret import *
 from selenium.common.exceptions import WebDriverException, NoSuchElementException
+import re
 
 DEBUG = True
 
@@ -21,7 +22,7 @@ class vuln_config:
                 )
 
 class cve:
-    def __init__(self, package=None, release=None, fixed=None, advisories=None, bugids=None,vulnerable=[]):
+    def __init__(self, package=None, release=None, fixed=None, advisories=None, bugids=[],vulnerable=[]):
         self.package = package
         self.release = release
         self.fixed = fixed
@@ -74,6 +75,10 @@ def clean_tables(info_table, fixed_table):
     fixed_table = fixed_table.find_elements(By.XPATH, "./tr")
     fixed_table = [line.text.split() for line in fixed_table]
 
+    debug("Output from security-tracker")
+    debug(f"Fixed table \n: {fixed_table}")
+    debug(f"Info table \n: {info_table.text}")
+
     for line in fixed_table:
         if line[3] == '(not':
             line[3] = '(not affected)'
@@ -123,10 +128,10 @@ def clean_tables(info_table, fixed_table):
     for row in info_table:
         i = 0
         while i < len(row):
-            if row[i] == "(PTS)":
+            if "(PTS)" in row[i]:
                 row.pop(i)
-            elif row[i] == "(security)" and i > 0:
-                row[i-1] = f"{row[i-1]} (security)"
+            elif "(security)" in row[i] and i > 0:
+                row[i-1] = f"{row[i-1]} (security),"
                 row.pop(i)
             else:
                 i += 1
@@ -158,10 +163,10 @@ def clean_tables(info_table, fixed_table):
         debug(f"{line_fixed}")
         assert len(line_fixed) == 7 , f"line: {line_fixed} is not of correct format"
 
-    debug(f"\nunfiltered output of fixed table: \n")
+    debug(f"\nunfiltered output of info table: \n")
     for line_info in info_table:
         debug(f"{line_info}")
-        assert len(line_info) == 4 , f"line: {line_info} is not of correct format"
+        #assert len(line_info) == 4 , f"line: {line_info} is not of correct format"
 
     return info_table, fixed_table
 
@@ -202,7 +207,7 @@ def convert_tables(info_table, fixed_table):
                      release=line[2],
                      fixed=line[3],
                      advisories= None if line[5] == '' else line[5],
-                     bugids=bug_id)
+                     bugids= [] if not line[6]  else [(bug_id, False)])
         convert_results.append(config)
 
     #If there's a line here, it means the release concerned by this line is vulnerable
@@ -242,58 +247,129 @@ def preceding_version_lookup(cve_details:cve):
     
     return cve_details
 
+#TODO: Turn these into methods
+def bug_version_lookup(browser, cve_details, args , check = False):
+    if cve_details.bugids == []:
+        raise Exception(f"package: {cve_details.package} for {cve_details.release} has no bugids")
 
-def bug_version_lookup(browser, cve_details, check = False):
-    assert cve_details.bugids != None, (
-            f"package: {cve_details.package} for {cve_details.release} has no bugid")
+    debug(cve_details.bugids)
 
-    if cve_details.bugids < 40000:
-        print(f"The bugId : {cve_details.bugids} might no longer be available")
+    for bugid, used in cve_details.bugids:
+
+        if bugid < 40000:
+            print(f"The bugId : {bugid} might no longer be available")
+
+        if not used:
+            used = True #To prevent re-doing this
+            url = f"https://bugs.debian.org/cgi-bin/bugreport.cgi?bug={bugid}"
+            try:
+                browser.get(url)
+                #Check if we find the CVE mentioned anywhere in the bug report 
+                if check:
+                    cve_fullname= f"CVE-{args.cve_number}"
+                    debug(f"Checking if there's a DSA->bug->link"
+                          f"{cve_fullname} in page: {cve_fullname in browser.page_source}"
+                            )
+                    if cve_fullname not in browser.page_source:
+                        raise Exception("The bug linked to this cve through DSA doesn't seem to concern the current CVE")
+            except WebDriverException as exc:
+                raise Exception("Selenium : Page not found. Wrong bug number" ) from exc
+
+            try:
+                bug_info = browser.find_element(By.CLASS_NAME, "buginfo")
+                p_tags = bug_info.find_elements(By.TAG_NAME, "p") 
+                versions = [] 
+
+                #This code seems really slow
+                for p_tag in p_tags:
+                    text = p_tag.text
+                    if text.startswith("Found in version ") or text.startswith("Found in versions ")  :
+                        version = text[len("Found in version "):].strip().split(", ")
+                        versions.extend(version)
+                debug(versions)
+
+                #We treat cases where one bug concerns many versions
+                for version in versions:
+                    #fix_certainty, depends from check
+                    vc = vuln_config( version = version, certainty = 10 if not check else 5)
+                    cve_details.vulnerable.append(vc)
+                if not versions:
+                    raise Exception(f"bug { cve_details.bugids} has no 'Found in version' tag")
 
 
-    url = f"https://bugs.debian.org/cgi-bin/bugreport.cgi?bug={cve_details.bugids}"
+            except NoSuchElementException as exc:
+                raise Exception("Selenium: 'buginfo' div or 'p' tag not found") from exc
+            except WebDriverException as exc:
+                raise Exception("Selenium: Error accessing page content") from exc
+    
+    
+
+def dsa_version_lookup(browser,args, cve_details):
+    if cve_details.advisories == None: 
+        raise Exception (f"package: {cve_details.package} for {cve_details.release} has no DSA/DLA")
+
+    if "DSA" in cve_details.advisories:
+        url = f"https://www.debian.org/security/{cve_details.advisories}"
+    else:
+        url = f"https://www.debian.org/lts/security/{cve_details.advisories}"
+    #the idea is to pass the found bug to the bug_version_lookup to do the rest; bug version bug_version_lookup 
+    # might need to be broken down, to search a version given a bug, and then for a list of bugs(as DSAs have many)
 
     try:
         browser.get(url)
+        pre_element = browser.find_element(By.TAG_NAME, "pre")
+        advisory_text = pre_element.text
+    except NoSuchElementException:
+        raise Exception("Selenium: 'pre' tag not found on the page")
     except WebDriverException as exc:
-        raise Exception("Selenium : Page not found. Wrong bug number " ) from exc
+        raise Exception("Selenium : Page not found. Wrong DSA number " ) from exc
+    #Find CVE tags, might help to know if CVE is concerned
+    cve_pattern = r'CVE-\d{4}-\d{4,7}'
+    cve_ids = re.findall(cve_pattern, advisory_text)
+    if not cve_ids:
+        raise Exception("No CVE IDs found in the security advisory")
+   
+    #Find Bug Ids
+    bug_pattern = r'Debian Bug\s*:\s*([\d\s]+)'
+    bug_match = re.search(bug_pattern, advisory_text)
+    bug_ids = bug_match.group(1).strip().split() if bug_match else []
+    bug_ids = [ (int(bugid),False) for bugid in bug_ids]
+    if not bug_ids:
+        raise Exception("No Debian Bug IDs found in the security advisory")
 
-    try:
-        bug_info = browser.find_element(By.CLASS_NAME, "buginfo")
-        p_tags = bug_info.find_elements(By.TAG_NAME, "p") 
-        
-        #This code seems really slow
-        for p_tag in p_tags:
-            text = p_tag.text
-            if text.startswith("Found in version "):
-                version = text[len("Found in version "):].strip()
-                print("Found in version:", version)
-                return version
-        else:
-            print("Found in version not found")
-            return None
-
-    except NoSuchElementException as exc:
-        raise Exception("Selenium: 'buginfo' div or 'p' tag not found") from exc
-    except WebDriverException as exc:
-        raise Exception("Selenium: Error accessing page content") from exc
-    
+    #Now that we found the bugIds we try and find a version behind these bugIds
+    cve_details.bugids.extend(bug_ids)
+    bug_version_lookup(browser,cve_details,args,check=True)
     
 
-def dsa_version_lookup(cve_details):
-    assert cve_details.advisories != None, (
-            f"package: {cve_details.package} for {cve_details.release} has no DSA/DLA")
 
-    url = f"https://security-tracker.debian.org/tracker/{cve_details.advisories}"
-    #the idea is to pass the found bug to the bug_version_lookup to do the rest; bug version bug_version_lookup 
-    # might need to be broken down, to search a version given a bug, and then for a list of bugs(as DSAs have many)
-     
-    print("TODO")
 
-def vulnerable_versions_lookup(browser, cve_list):
+def vulnerable_versions_lookup(browser, cve_list, args):
     for cve in cve_list:
-        if cve.bugids:
-            config = bug_version_lookup(browser,cve)
+        debug(f"Processing cve: \n\n {cve.to_string()}")
+
+        #TODO: this would be cleaner using a chain of try withs
+
+        try:
+            bug_version_lookup(browser,cve,args)
+        except Exception as e:
+            print( f"Finding version through bugid failed with:\n{e}")
+
+            if cve.advisory:
+                print("\nattempting to find version using DSAs")
+                try:
+                    dsa_version_lookup(browser,args,cve)
+                except Exception as e:
+                    print( f"Finding version through DSAs failed with:\n{e}"
+                            "\nattempting to find the preceding version of the fixed one")
+                    preceding_version_lookup(cve)
+            else:
+                #TODO: Check if requests should also raise exceptions
+                print("attempting the preceding version of the fixed one")
+                preceding_version_lookup(cve)
+
+
+
     """
     GATHERING INFORMATION:
         for gathering the information on 
@@ -343,19 +419,22 @@ def vulnerable_versions_lookup(browser, cve_list):
 
 
 if __name__ == "__main__":
+    #TODO: turn lookup functions into methods
+    #TODO: Figure out how to extensively test this thing
     try: 
         browser = prepare_browser()
         args = argparse.Namespace()
-        args.cve_number = "2019-9514"
+        args.cve_number = "2016-3714"
 
         info_table, fixed_table = get_cve_tables_selenium(browser,args)
         info_table, fixed_table = filter_tables(info_table, fixed_table)
         cve_list = convert_tables(info_table, fixed_table)
+        vulnerable_versions_lookup(browser,cve_list,args)
 
-        cve_list[1].bugids = 934955
+        debug("\nResults: \n")
+        for cve in cve_list:
+            debug(f"{cve.to_string}\n")
 
-
-        vulnerable_versions_lookup(browser,cve_list)
 
     except FatalError as fatal_exc:
         print(fatal_exc, file = sys.stderr)
