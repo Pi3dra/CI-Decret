@@ -1,8 +1,0 @@
-
-class cve
-	package:string
-	fixed_version:string
-	dsa_dla:string
-	bug_id:int
-	vulnerable_config = [config]
-
