@@ -31,6 +31,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException
 
 DEBIAN_RELEASES = [
+    "woody",
     "sarge",
     "etch",
     "lenny",
