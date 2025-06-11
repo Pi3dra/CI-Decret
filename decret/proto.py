@@ -1,8 +1,9 @@
-from decret import *
+from decret.decret import * 
 from selenium.common.exceptions import WebDriverException, NoSuchElementException
+import argparse
 import re
 
-DEBUG = False
+DEBUG = True
 
 def debug(string):
     if DEBUG:
@@ -17,10 +18,8 @@ class vuln_config:
     def to_string(self):
         return (f"  version: {self.version}\n "
                 f"   timestamp: {self.timestamp}\n "
-                f"   certainty: {self.method}\n" #[bug,DSA,n-1,still_vulnerable]
+                f"   method: {self.method}\n" #[bug,DSA,n-1,still_vulnerable]
                 )
-
-    #TODO: find timestamps and corresponding src packages bin packages
 
 class cve:
     def __init__(self, package=None, release=None, fixed=None, advisory=None, bugids=[],vulnerable=[]):
@@ -75,6 +74,7 @@ class cve:
             if bugid < 40000:
                 print(f"The bugId : {bugid} might no longer be available")
 
+            #TODO: This is not propely working
             if not used:
                 used = True #To prevent re-doing this
                 url = f"https://bugs.debian.org/cgi-bin/bugreport.cgi?bug={bugid}"
@@ -134,9 +134,6 @@ class cve:
             raise Exception("Selenium: 'pre' tag not found on the page")
         except WebDriverException as exc:
             raise Exception("Selenium : Page not found. Wrong DSA number " ) from exc
-        #Find CVE tags, might help to know if CVE is concerned
-        #cve_pattern = r'CVE-\d{4}-\d{4,7}'
-        #cve_ids = re.findall(cve_pattern, advisory_text)
    
         #Find Bug Ids
         bug_pattern = r'Debian Bug\s*:\s*([\d\s]+)'
@@ -203,11 +200,11 @@ def get_cve_tables_selenium(browser, args: argparse.Namespace):
         
         if has_info_table: 
             info_table = browser.find_element(By.XPATH, f"/html/body/table[{indices['info']}]/tbody")
-            if "ITP" in info_table.text:
-                raise Exception("CVE is ITP, this is not replicable")
-
+            
         if has_fixed_table:
             fixed_table = browser.find_element(By.XPATH, f"/html/body/table[{indices['fixed']}]/tbody")
+            if "ITP" in fixed_table.text:
+                raise Exception("CVE is ITP, this is not replicable")
 
         if not fixed_table and not info_table:
             raise Exception("No tables found")
@@ -217,6 +214,21 @@ def get_cve_tables_selenium(browser, args: argparse.Namespace):
                 "Selenium : Table not found. Are you connected to internet ? Or is the package ITP/RFP?"
         ) from exc
     
+
+    debug("Raw Info table and Fixed table")
+    if info_table is not None:
+        for line in info_table.find_elements(By.TAG_NAME, "tr"):  # Iterate over table rows
+            debug(line.text)
+    else:
+        debug("Info table not found")
+
+    if fixed_table is not None:
+        for line in fixed_table.find_elements(By.TAG_NAME, "tr"):  # Iterate over table rows
+            debug(line.text)
+    else:
+        debug("Fixed table not found")
+    
+
     info_table, fixed_table = clean_tables(info_table,fixed_table) 
  
     return info_table, fixed_table
@@ -259,7 +271,7 @@ def clean_tables(info_table, fixed_table):
                 line[i] = ""
         
         if urgency:
-            line[3] = urgency
+            line[4] = urgency
         if dsa_dla:
             line[5] = dsa_dla
         if bug:
@@ -315,6 +327,13 @@ def clean_tables(info_table, fixed_table):
 
     for line_info in info_table:
         assert len(line_info) >= 4 , f"line: {line_info} is not of correct format"
+
+    debug("Clean Info table and Fixed table")
+    for line in info_table:
+        debug(line)
+    for line in fixed_table:
+        debug(line)
+    
 
     return info_table, fixed_table
 
@@ -381,99 +400,23 @@ def convert_tables(info_table, fixed_table):
 
     return convert_results
 
+
 def versions_lookup(cve_list,browser,args):
     #might be smart to use flags to filter which method to use
     for cve in cve_list:
         cve.vulnerable_versions_lookup(browser, args)
 
-def testing(file_path, browser):
-    results = []
-    try:
-        with open(file_path, 'r') as file:
-            cve_numbers = [line.strip() for line in file if line.strip()]
-    except FileNotFoundError:
-        print(f"Error: File {file_path} not found")
-    except Exception as e:
-        print(f"Error reading file {file_path}: {str(e)}")
 
-    for cve_number in cve_numbers:
-        print(cve_number)
-
-        args = argparse.Namespace()
-        args.cve_number = cve_number
-
-        try:
-            info_table, fixed_table = get_cve_tables_selenium(browser,args)
-        except Exception as e:
-            print(f"Unable to find table {e}")
-            continue
-        info_table, fixed_table = filter_tables(info_table, fixed_table)
-        cve_list = convert_tables(info_table, fixed_table)
-        versions_lookup(cve_list,browser,args)
-
-        for cve in cve_list:
-            counter = { "vulnerable": 0, "DSA": 0, "N-1": 0, "Bug":0 } 
-            for config in cve.vulnerable:
-                counter[config.method] += 1 
-            print(counter)
-            print(cve.to_string())
-            
-        results.append(cve_list)
-
-
-"""
-    GATHERING INFORMATION:
-        for gathering the information on 
-        https://security-tracker.debian.org/tracker/CVE-2019-9514
-
-        We can use directly the website, or 
-        use the JSON used in decret to build the top table
-        and the /salsa/.../CVE list to build the bottom one
-
-        For robustness might be interesting to merge the two methods
-        as sometimes information is missing from certain sources and present in others
-
-        This allows us to build a list of configuration descriptions using
-        the cve class described on top, and later search for vulnerable configs
-
-        NOTE: The search of vulnerable configs is solely done with selenium
-        NOTE: maybe requests + beautifulsoup might be faster?
-        
-
-    FINDING VULNERABLE CONFIGS:
-
-    If a (release,package) is considered still vulnerable from the first table of security-tracker
-        register the version saying we are certain it works
-    
-    else try searching through BugIds
-        if we find a version behind the bugId
-            register it saying we are certain it works
-
-    else if we don't find a version or there's no BugId 
-        if there's a DSA/DLA then 
-            try and deduce a bugId tied to the release (not sure how yet)
-                using that bugId try and find a version
-
-            if we find a version behind the bugId 
-                register it saying we are almost certain it works
-        
-        else if there's no DSA or we don't find a version
-            use default strategy and search for the version previous to the fixed_release
-            and say we are not so certain
-
-    We do this for each table entry and we choose the one we are most certain of working,
-    like a recent release, with a package found through "reliable" methods
-"""
-
+       
 
 if __name__ == "__main__":
 
-    #TODO: Figure out how to extensively test this thing
+    #TODO: CVE 2007-3910, no vulnerable version, not properly parsing table
+    #TODO: CVE 2007-6355, not properly finding bug in DSA(finally, this seems fine)
     try: 
-        """
         browser = prepare_browser()
         args = argparse.Namespace()
-        args.cve_number = "2002-1051"
+        args.cve_number = "2007-3910"
 
         info_table, fixed_table = get_cve_tables_selenium(browser,args)
         info_table, fixed_table = filter_tables(info_table, fixed_table)
@@ -484,9 +427,6 @@ if __name__ == "__main__":
         for cve in cve_list:
             debug(f"{cve.to_string()}\n")
         
-        """
-        browser = prepare_browser()
-        testing("../salsa/cves_head.txt",browser)
 
     except FatalError as fatal_exc:
         print(fatal_exc, file = sys.stderr)
