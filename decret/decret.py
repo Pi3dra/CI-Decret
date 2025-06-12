@@ -42,6 +42,9 @@ DEBIAN_RELEASES = [
     "buster",
     "bullseye",
     "bookworm",
+    "trixie", #These just helps to retrieve information easier
+    "(unstable)", #might be needed to treat it differently
+    "sid"
 ]
 
 LATEST_RELEASE = DEBIAN_RELEASES[-1]

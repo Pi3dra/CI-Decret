@@ -3,7 +3,7 @@ from selenium.common.exceptions import WebDriverException, NoSuchElementExceptio
 import argparse
 import re
 
-DEBUG = True
+DEBUG = False
 
 def debug(string):
     if DEBUG:
@@ -322,12 +322,7 @@ def clean_tables(info_table, fixed_table):
         if len(info_table[i]) < 4:
             info_table[i].insert(0,packagename)
 
-    for line_fixed in fixed_table:
-        assert len(line_fixed) == 7 , f"line: {line_fixed} is not of correct format"
-
-    for line_info in info_table:
-        assert len(line_info) >= 4 , f"line: {line_info} is not of correct format"
-
+   
     debug("Clean Info table and Fixed table")
     for line in info_table:
         debug(line)

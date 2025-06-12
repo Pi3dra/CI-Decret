@@ -1,6 +1,0 @@
-{
-  "include": ["."],
-  "reportMissingImports": true,
-  "reportMissingModuleSource": true,
-  "extraPaths": ["."]
-}
