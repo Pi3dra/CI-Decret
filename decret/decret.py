@@ -42,9 +42,9 @@ DEBIAN_RELEASES = [
     "buster",
     "bullseye",
     "bookworm",
-    "trixie", #These just helps to retrieve information easier
-    "(unstable)", #might be needed to treat it differently
-    "sid"
+    "trixie",  # These just helps to retrieve information easier
+    "(unstable)",  # might be needed to treat it differently
+    "sid",
 ]
 
 LATEST_RELEASE = DEBIAN_RELEASES[-1]
@@ -151,7 +151,6 @@ def arg_parsing(args=None):
         action="store_true",
         help="Prevents directly running the containter after building",
     )
-
 
     namespace = parser.parse_args(args)
 
@@ -512,6 +511,7 @@ def build_docker(args, cve_details):
         subprocess.run(build_cmd, check=True)
     except subprocess.CalledProcessError as exc:
         raise FatalError("Error while building the container") from exc
+
 
 def run_docker(args):
     docker_image_name = f"{args.release}/cve-{args.cve_number}"

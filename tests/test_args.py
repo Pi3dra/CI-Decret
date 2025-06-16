@@ -1,5 +1,5 @@
 import pytest
-from decret import arg_parsing, FatalError
+from decret.decret import arg_parsing, FatalError
 
 
 def test_args():
