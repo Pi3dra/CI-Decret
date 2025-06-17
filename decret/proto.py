@@ -1,16 +1,16 @@
 import argparse
+import os
 import re
+import pandas as pd
 from bs4 import BeautifulSoup, Tag
-from selenium.common.exceptions import WebDriverException, NoSuchElementException
 from requests.exceptions import RequestException
 from decret.decret import (
-    prepare_browser,
     requests,
     DEFAULT_TIMEOUT,
     DEBIAN_RELEASES,
     FatalError,
     CVENotFound,
-    By,
+    Path,
     sys,
 )
 
@@ -123,7 +123,7 @@ class Cve:
         return self
 
     # This could be cleaner with an iterator handling the bugids
-    def bug_version_lookup(self, browser, args, check=False):
+    def bug_version_lookup(self, args, check=False):
         self.init_vulnerable()
 
         if self.bugids is None or self.vulnerable is None:
@@ -166,7 +166,6 @@ class Cve:
 
                     versions = []
 
-                    # This code seems really slow
                     for p_tag in bug_info.find_all("p"):
                         text = p_tag.get_text(strip=True)
                         if text.startswith(("Found in version ", "Found in versions ")):
@@ -191,7 +190,7 @@ class Cve:
                 except RequestException as exc:
                     raise SearchError("requests: Error accesing bug report") from exc
 
-    def dsa_version_lookup(self, browser, args):
+    def dsa_version_lookup(self, args):
         # TODO: Investigate, some old DSAs are no longer available? CVE-2002-1051
         self.init_vulnerable()
         if self.bugids is None:
@@ -230,18 +229,18 @@ class Cve:
 
         # Now that we found the bugIds we try and find a version behind these bugIds
         self.bugids.extend(bug_ids)
-        self.bug_version_lookup(browser, args, check=True)
+        self.bug_version_lookup(args, check=True)
 
-    def vulnerable_versions_lookup(self, browser, args):
+    def vulnerable_versions_lookup(self, args):
         try:
-            self.bug_version_lookup(browser, args)
+            self.bug_version_lookup(args)
         except (SearchError, CVENotFound) as error:
             debug(f"finding vulnerable version for: {self.package},{self.release}")
             debug(f"Finding version through bugid failed with:\n\t{error}")
             if self.advisory:
                 debug("\tattempting to find version using DSAs")
                 try:
-                    self.dsa_version_lookup(browser, args)
+                    self.dsa_version_lookup(args)
                 except (SearchError, CVENotFound) as error:
                     debug(
                         f"\t\tFinding version through DSAs failed with:\n\t\t\t{error}"
@@ -261,176 +260,84 @@ class Cve:
                     debug(f"\t\tthis package: {self.package} is currently vulnerable")
 
 
-def get_cve_tables_selenium(browser, args: argparse.Namespace):
-    cve_id = f"CVE-{args.cve_number}"
-    info_table = None
+def get_cve_tables(args: argparse.Namespace):
+    url = f"https://security-tracker.debian.org/tracker/CVE-{args.cve_number}"
     fixed_table = None
-
+    info_table = None
     try:
-        browser.get(f"https://security-tracker.debian.org/tracker/{cve_id}")
+        response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        # Checking tables are present
-        p_tags = browser.find_elements(By.TAG_NAME, "p")
-        p_tags = [s.text for s in p_tags]
-        st1 = "The table below lists information on source packages."
-        st2 = "The information below is based on the following data on fixed versions."
-        has_fixed_table = any(st2 in s for s in p_tags)
-        has_info_table = any(st1 in s for s in p_tags)
-        indices = {
-            "info": 2 if has_info_table else None,
-            "fixed": (
-                3
-                if has_info_table and has_fixed_table
-                else 2 if has_fixed_table else None
-            ),
-        }
+        header_info = ["Source Package", "Release", "Version", "Status"]
+        header_fixed = [
+            "Package",
+            "Type",
+            "Release",
+            "Fixed Version",
+            "Urgency",
+            "Origin",
+            "Debian Bugs",
+        ]
 
-        if has_info_table:
-            info_table = browser.find_element(
-                By.XPATH, f"/html/body/table[{indices['info']}]/tbody"
+        info_tables = soup.find_all("table")  # Get all table tags
+        for elt in info_tables:
+            if info_tables is not None and isinstance(elt, Tag):
+                header = [column.get_text() for column in elt.find_all("th")]
+                if header == header_info:
+                    info_table = elt
+                if header == header_fixed:
+                    fixed_table = elt
+
+        if info_table is None and fixed_table is None:
+            raise CVENotFound(
+                "Decret didn't find any tables on the security tracker site"
             )
 
-        if has_fixed_table:
-            fixed_table = browser.find_element(
-                By.XPATH, f"/html/body/table[{indices['fixed']}]/tbody"
+        info_table, fixed_table = clean_tables(info_table, fixed_table)
+        info_table, fixed_table = filter_tables(info_table, fixed_table)
+
+        if info_table is None and fixed_table is None:
+            raise CVENotFound(
+                "CVE is either ITP,NOT-FOR-US,REJECTED, or it doesn't affect any debian release"
             )
-            if "ITP" in fixed_table.text:
-                raise Exception("CVE is ITP, this is not replicable")
-
-        if not fixed_table and not info_table:
-            raise Exception("No tables found")
-
-    except WebDriverException as exc:
-        raise Exception(
-            "Selenium : Table not found. Are you connected to internet ? Or is the package ITP/RFP?"
-        ) from exc
-
-    debug("Raw Info table and Fixed table")
-    if info_table is not None:
-        for line in info_table.find_elements(
-            By.TAG_NAME, "tr"
-        ):  # Iterate over table rows
-            debug(line.text)
-    else:
-        debug("Info table not found")
-
-    if fixed_table is not None:
-        for line in fixed_table.find_elements(
-            By.TAG_NAME, "tr"
-        ):  # Iterate over table rows
-            debug(line.text)
-    else:
-        debug("Fixed table not found")
-
-    info_table, fixed_table = clean_tables(info_table, fixed_table)
+    except:
+        print("TODO")
 
     return info_table, fixed_table
 
 
 def clean_tables(info_table, fixed_table):
     if fixed_table is not None:
-        fixed_table = fixed_table.find_elements(By.XPATH, "./tr")
-        fixed_table = [line.text.split() for line in fixed_table]
+        fixed_table = list(fixed_table.find_all("td"))
+        fixed_table = [line.get_text() for line in fixed_table]
+        fixed_table = [fixed_table[i : i + 7] for i in range(0, len(fixed_table), 7)]
     else:
         fixed_table = []
 
     if info_table is not None:
-        info_table = info_table.find_elements(By.XPATH, "./tr")
-        info_table = [line.text.split() for line in info_table]
+        info_table = list(info_table.find_all("td"))
+        info_table = [line.get_text() for line in info_table]
+        info_table = [info_table[i : i + 4] for i in range(0, len(info_table), 4)]
+
     else:
         info_table = []
-    # remove headers
-    if len(info_table) > 0:
-        info_table.pop(0)
-    if len(fixed_table) > 0:
-        fixed_table.pop(0)
 
-    return clean_info_table(info_table), clean_fixed_table(fixed_table)
+    current_package = ""
+    for line in info_table:
+        if line[0] != "":
+            line[0] = "".join(line[0].split(" (PTS)"))
+            current_package = line[0]
+        elif line[0] == "":
+            line[0] = current_package
 
-
-def clean_fixed_table(fixed_table):
-    for line in fixed_table:
-        if line[3] == "(not":
-            line[3] = "(not affected)"
-            line.pop(4)
-
-    for line in fixed_table:
-        line.extend([""] * (7 - len(line)))
-
-    # ordering urgency, dsa and bug columns
-    for line in fixed_table:
-        urgencys = ["unimportant", "medium", "low", "high"]
-        dsa_dla = ""
-        urgency = ""
-        bug = ""
-
-        for i in range(4, 7):
-            if not line[i]:
-                continue
-            if "DSA" in line[i] or "DLA" in line[i]:
-                dsa_dla = line[i]
-                line[i] = ""
-            elif any(urgency_val in line[i] for urgency_val in urgencys):
-                urgency = line[i]
-                line[i] = ""
-            elif line[i].isdigit():
-                bug = line[i]
-                line[i] = ""
-
-        if urgency:
-            line[4] = urgency
-        if dsa_dla:
-            line[5] = dsa_dla
-        if bug:
-            line[6] = bug
-
-    return fixed_table
-
-
-def clean_info_table(info_table):
-    # Clean PTS and merge (security) with previous column
-    for row in info_table:
-        i = 0
-        while i < len(row):
-            if "(PTS)" in row[i]:
-                row.pop(i)
-            elif "(security)" in row[i] and i > 0:
-                row[i - 1] = f"{row[i-1]} (security),"
-                row.pop(i)
-            else:
-                i += 1
-
-    # merge multiple releases into a single column
-    for row in info_table:
-        i = 0
-        release_idx = []
-        while i < len(row):
-            is_release = any(row[i].startswith(release) for release in DEBIAN_RELEASES)
-            if is_release:
-                release_idx.append(i)
-            if len(release_idx) > 1:
-                row[release_idx[0]] += row[i]
-                row.pop(i)
-                release_idx.pop()
-                continue
-            i += 1
-
-    # Add missing package names to all lines
-    packagename = ""
-    for i, row in enumerate(info_table):
-        if len(row) == 4:
-            packagename = info_table[i][0]
-        if len(row) < 4:
-            info_table[i].insert(0, packagename)
-
-    return info_table
+    return info_table, fixed_table
 
 
 def filter_tables(info_table, fixed_table):
     # The idea of filtering separately is to have all available data and
     # make it easier for implementig other stuff
     # also for handling args like --release
-
     fixed_table = [
         line
         for line in fixed_table
@@ -449,12 +356,6 @@ def filter_tables(info_table, fixed_table):
             and any(release in line for release in DEBIAN_RELEASES)
         )
     ]
-
-    debug("Filtered Info table and Fixed table")
-    for line in info_table:
-        debug(line)
-    for line in fixed_table:
-        debug(line)
 
     return info_table, fixed_table
 
@@ -491,28 +392,91 @@ def convert_tables(info_table, fixed_table):
     return convert_results
 
 
-def versions_lookup(cve_list, browser, args):
+def versions_lookup(cve_list, args):
     # might be smart to use flags to filter which method to use
     for cve in cve_list:
-        cve.vulnerable_versions_lookup(browser, args)
+        cve.vulnerable_versions_lookup(args)
+
+
+def download_db():
+    # TODO: Try and cache this!
+    project_id = "40927511"  # Project ID for exploit-db
+    file_path = "files_exploits.csv"
+    destination_path = "cached-files/files_exploits.csv"
+
+    url = f"https://gitlab.com/api/v4/projects/{project_id}/repository/files/{file_path}/raw?ref=main"
+    print(url)
+
+    response = requests.get(url,timeout=DEFAULT_TIMEOUT)
+
+    if response.status_code == 200:
+        os.makedirs("cached-files", exist_ok=True)
+        with open(destination_path, "wb") as file:
+            file.write(response.content)
+    else:
+        print(f"Failed to download file: {response.status_code} - {response.text}")
+
+
+def get_exploit(args):
+    data = pd.read_csv("cached-files/files_exploits.csv")
+    data = data[["id", "file", "verified", "codes", "tags", "aliases"]]
+    cve_id = f"CVE-{args.cve_number}"
+    # quel bonheur
+    data = data[
+        data["codes"].str.contains(cve_id, na=False)
+        | data["tags"].str.contains(cve_id, na=False)
+        | data["aliases"].str.contains(cve_id, na=False)
+    ]
+    data = list(zip(data["id"], data["file"], data["verified"]))
+
+    output_dir = Path(args.directory)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for i, (id, path, verified) in enumerate(data):
+        # Building url
+        project_id = "40927511"
+        url = (
+            f"https://gitlab.com/api/v4/projects/{project_id}"
+            f"/repository/files/{path.replace('/', '%2F')}/raw?ref=main"
+        )
+
+        # Building path
+        file_extension = os.path.splitext(path)[1]
+        exploit_filename = f"exploit_{i}_{id}"
+        if verified:
+            exploit_filename += "_verified"
+        exploit_path = output_dir / Path(exploit_filename + file_extension)
+
+        # Fetching exploits
+        response = requests.get(url,timeout = DEFAULT_TIMEOUT)
+        if response.status_code == 200:
+            os.makedirs("cached-files", exist_ok=True)
+            with open(exploit_path, "wb") as file:
+                file.write(response.content)
+        else:
+            print(f"Failed to download file: {response.status_code} - {response.text}")
 
 
 if __name__ == "__main__":
 
     # TODO: find a way to get_exploit with requests instead of selenium
     try:
-        browser = prepare_browser()
         args = argparse.Namespace()
-        args.cve_number = "2007-3910"
+        args.cve_number = "2016-3714"
+        args.directory = "hey_listen!"
 
-        info_table, fixed_table = get_cve_tables_selenium(browser, args)
-        info_table, fixed_table = filter_tables(info_table, fixed_table)
+        """
+
+        info_table, fixed_table = get_cve_tables(args)
         cve_list = convert_tables(info_table, fixed_table)
-        versions_lookup(cve_list, browser, args)
+        versions_lookup(cve_list, args)
 
-        debug("\nResults: \n")
+        print("\nResults: \n")
         for cve in cve_list:
-            debug(f"{cve.to_string()}\n")
+            print(f"{cve.to_string()}\n")
+        """
+        download_db()
+        get_exploit(args)
 
     except FatalError as fatal_exc:
         print(fatal_exc, file=sys.stderr)

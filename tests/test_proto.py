@@ -14,17 +14,11 @@ def cve_numbers():
     except Exception as e:
         pytest.fail(f"Error reading CVE file: {str(e)}")
 
-
-@pytest.fixture(scope="session")
-def browser():
-    return prepare_browser()
-
-
 # ===================== TESTING Finding and cleaning Tables =====================
 
 
 @pytest.fixture(scope="session")
-def found_tables(cve_numbers, browser):
+def found_tables(cve_numbers):
     results = {}
     errored_on_search = []
 
@@ -33,7 +27,7 @@ def found_tables(cve_numbers, browser):
         args.cve_number = cve_number
 
         try:
-            info_table, fixed_table = get_cve_tables_selenium(browser, args)
+            info_table, fixed_table = get_cve_tables(args)
             results[cve_number] = (info_table, fixed_table)
         except Exception as e:
             errored_on_search.append((cve_number, e))
@@ -194,12 +188,12 @@ def test_converted_list(converted_tables):
 
 
 @pytest.fixture(scope="session")
-def vuln_configs(browser, converted_tables):
+def vuln_configs(converted_tables):
     for cve_number, cve_list in converted_tables.items():
         args = argparse.Namespace()
         args.cve_number = cve_number
 
-        versions_lookup(cve_list, browser, args)
+        versions_lookup(cve_list, args)
 
     return converted_tables
 
