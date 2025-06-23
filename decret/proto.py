@@ -1,4 +1,5 @@
 import argparse
+import time  # ERASE, this is for testing only
 import os
 import re
 import pandas as pd
@@ -152,7 +153,7 @@ class Cve:
                             f"Checking if there's a DSA->bug->link\n"
                             f"{cve_fullname} in page: {cve_fullname in content}"
                         )
-                        if cve_fullname not in browser.page_source:
+                        if cve_fullname not in content:
                             raise CVENotFound(
                                 "The bug linked to this cve through"
                                 "DSA doesn't seem to concern the current CVE"
@@ -301,8 +302,8 @@ def get_cve_tables(args: argparse.Namespace):
             raise CVENotFound(
                 "CVE is either ITP,NOT-FOR-US,REJECTED, or it doesn't affect any debian release"
             )
-    except:
-        print("TODO")
+    except RequestException as error:
+        print(f"Failed to retrieve CVE data from {url}: {error}")
 
     return info_table, fixed_table
 
@@ -398,28 +399,94 @@ def versions_lookup(cve_list, args):
         cve.vulnerable_versions_lookup(args)
 
 
-def download_db():
-    # TODO: Try and cache this!
+def db_is_up_to_date():
+    """
+    Returns a tuple ( bool * string) indicating if the db needs updating and the new hash
+    """
     project_id = "40927511"  # Project ID for exploit-db
     file_path = "files_exploits.csv"
-    destination_path = "cached-files/files_exploits.csv"
+    destination_dir = "cached-files"
+    hash_file_path = os.path.join(destination_dir, "files_exploits.hash")
+    url = (
+            f"https://gitlab.com/api/v4/projects/{project_id}"
+            f"/repository/files/{file_path}/raw?ref=main"
+    )
 
-    url = f"https://gitlab.com/api/v4/projects/{project_id}/repository/files/{file_path}/raw?ref=main"
-    print(url)
+        # TODO: Test this further, curl needs 0,5s 
+        # meanwhile this takes 10 secs to get a HEAD request
+        # Maybe it's my pc lol
+    start = time.perf_counter()
+    head = requests.head(url, timeout=DEFAULT_TIMEOUT)
+    duration = time.perf_counter() - start
+    print(f"HEAD request took: {duration:.2f} seconds")
+    head.raise_for_status()
+    blob_hash = head.headers["x-gitlab-blob-id"]
 
-    response = requests.get(url,timeout=DEFAULT_TIMEOUT)
+    stored_blob_hash = None
 
-    if response.status_code == 200:
-        os.makedirs("cached-files", exist_ok=True)
-        with open(destination_path, "wb") as file:
-            file.write(response.content)
+    try:
+        with open(hash_file_path, "r", encoding="utf-8") as file:
+            stored_blob_hash = file.read()
+    except FileNotFoundError:
+        return (False, blob_hash)
+
+    return (stored_blob_hash == blob_hash, blob_hash)
+
+
+def download_db():
+    # DOCS: https://docs.gitlab.com/api/repository_files/#get-file-metadata-only
+    project_id = "40927511"  # Project ID for exploit-db
+    file_path = "files_exploits.csv"
+    destination_dir = "cached-files"
+    hash_file_path = os.path.join(destination_dir, "files_exploits.hash")
+    csv_file_path = os.path.join(destination_dir, file_path)
+    url = (f"https://gitlab.com/api/v4/projects/{project_id}"
+           f"/repository/files/{file_path}/raw?ref=main")
+
+    try:
+        up_to_date, blob_hash = db_is_up_to_date()
+    except RequestException as error:
+        print(f"Checking if the db is up to date failed with {error}")
+        return
+
+    if not up_to_date:
+        print("Proceeding to download files_exploits.csv from exploit-db")
     else:
-        print(f"Failed to download file: {response.status_code} - {response.text}")
+        print("db is up to date no need to download it")
+        return
+
+    try:
+        response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+    except RequestException as error:
+        print(f"Failed GET request from {url} with :\n{error}")
+        return
+
+    os.makedirs(destination_dir, exist_ok=True)
+
+    try:
+        with open(csv_file_path, "wb") as file:
+            file.write(response.content)
+        with open(hash_file_path, "w", encoding="utf-8") as file:
+            file.write(blob_hash)
+        print("File downloaded and hash updated.")
+    except IOError as error:
+        print(f"Failed to write file: {error}")
 
 
 def get_exploit(args):
-    data = pd.read_csv("cached-files/files_exploits.csv")
+    try:
+        data = pd.read_csv("cached-files/files_exploits.csv")
+    except FileNotFoundError:
+        download_db()
+        try:
+            data = pd.read_csv("cached-files/files_exploits.csv")
+        except FileNotFoundError:
+            print("Failed to download db")
+            return
+
     data = data[["id", "file", "verified", "codes", "tags", "aliases"]]
+
     cve_id = f"CVE-{args.cve_number}"
     # quel bonheur
     data = data[
@@ -432,7 +499,11 @@ def get_exploit(args):
     output_dir = Path(args.directory)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, (id, path, verified) in enumerate(data):
+    if len(data) == 0:
+        print("No exploits Found")
+        return
+
+    for i, (exploit_id, path, verified) in enumerate(data):
         # Building url
         project_id = "40927511"
         url = (
@@ -442,13 +513,13 @@ def get_exploit(args):
 
         # Building path
         file_extension = os.path.splitext(path)[1]
-        exploit_filename = f"exploit_{i}_{id}"
+        exploit_filename = f"exploit_{i}_{exploit_id}"
         if verified:
             exploit_filename += "_verified"
         exploit_path = output_dir / Path(exploit_filename + file_extension)
 
         # Fetching exploits
-        response = requests.get(url,timeout = DEFAULT_TIMEOUT)
+        response = requests.get(url, timeout=DEFAULT_TIMEOUT)
         if response.status_code == 200:
             os.makedirs("cached-files", exist_ok=True)
             with open(exploit_path, "wb") as file:
@@ -476,7 +547,7 @@ if __name__ == "__main__":
             print(f"{cve.to_string()}\n")
         """
         download_db()
-        get_exploit(args)
+        # get_exploit(args)
 
     except FatalError as fatal_exc:
         print(fatal_exc, file=sys.stderr)
