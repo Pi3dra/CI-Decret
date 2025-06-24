@@ -1,14 +1,15 @@
 """
 Software Name : decret (DEbian Cve REproducer Tool)
 Version : 0.1
-SPDX-FileCopyrightText : Copyright (c) 2023 Orange
+SPDX-FileCopyrightText : Copyright (c) 2023-2025 Orange
 SPDX-License-Identifier : BSD-3-Clause
 
 This software is distributed under the BSD 3-Clause "New" or "Revised" License,
 the text of which is available at https://opensource.org/licenses/BSD-3-Clause
 or see the "license.txt" file for more not details.
 
-Authors : Clément PARSSEGNY, Olivier LEVILLAIN, Maxime BELAIR, Mathieu BACOU
+Authors : Clément PARSSEGNY, Olivier LEVILLAIN, Maxime BELAIR, Mathieu BACOU,
+Nicolas DEJON
 Software description : A tool to reproduce vulnerability affecting Debian
 It gathers details from the Debian metadata and exploits from exploit-db.com
 in order to build and run a vulnerable Docker container to test and
@@ -24,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+import jinja2
 
 import requests
 from selenium import webdriver
@@ -78,7 +80,7 @@ def arg_parsing(args=None):
         dest="release",
         type=str,
         choices=DEBIAN_RELEASES,
-        help="Debian Release name from 2005 to 2022",
+        help="Debian Release name from 2005 to 2025",
         required=True,
     )
     parser.add_argument(
@@ -90,10 +92,10 @@ def arg_parsing(args=None):
         default="./default",
     )
     parser.add_argument(
-        "--fixed-version",
-        dest="fixed_version",
+        "--vulnerable-version",
+        dest="vulnerable_version",
         type=str,
-        help="The fixed version number of the package",
+        help="Specify the vulnerable version number of the package",
     )
     parser.add_argument(
         "-p",
@@ -128,6 +130,12 @@ def arg_parsing(args=None):
         help="Do not use sudo to run docker commands",
     )
     parser.add_argument(
+        "--only-create-dockerfile",
+        dest="only_create_dockerfile",
+        action="store_true",
+        help="Do not build nor run the created docker",
+    )
+    parser.add_argument(
         "--cache-main-json-file",
         dest="cache_main_json_file",
         type=str,
@@ -154,7 +162,9 @@ def arg_parsing(args=None):
 
     namespace = parser.parse_args(args)
 
-    if not re.match(r"^2\d{3}-(0\d{3}|[1-9]\d{3,})$", namespace.cve_number):
+    if re.match(r"^CVE-2\d{3}-(0\d{3}|[1-9]\d{3,})$", namespace.cve_number):
+        namespace.cve_number=namespace.cve_number[4:]
+    elif not re.match(r"^2\d{3}-(0\d{3}|[1-9]\d{3,})$", namespace.cve_number):
         parser.print_usage(sys.stderr)
         raise FatalError("Wrong CVE format.")
 
@@ -192,24 +202,30 @@ def get_exploit(browser, args: argparse.Namespace):
     )
 
     i = 0
+    urls = []
     for row in exploit_table.find_elements(By.XPATH, "./tr"):
         if row.text == "No data available in table":
-            return 0
+            return []
         link_exploit = row.find_element(By.XPATH, "./td[2]/a").get_attribute("href")
         verified = bool(
             "check" in row.find_element(By.XPATH, "./td[4]/i").get_attribute("class")
         )
 
         exploit_filename = f"exploit_{i}"
+        exploit_url_filename = f"exploit_{i}.url"
         if verified:
             exploit_filename += "_verified"
         exploit_path = args.directory / exploit_filename
+        exploit_url_path = args.directory / exploit_url_filename
 
         headers = {"User-agent": "curl/7.74.0"}
         exploit = requests.get(link_exploit, headers=headers, timeout=DEFAULT_TIMEOUT)
         exploit_path.write_bytes(exploit.content)
+        exploit_url_path.write_text(f"{link_exploit}\n")
+
+        urls.append(link_exploit)
         i += 1
-    return i
+    return urls
 
 
 def prepare_browser():
@@ -319,13 +335,10 @@ def get_cve_details_from_json(args: argparse.Namespace) -> list[dict]:
         if args.release not in cve_info["releases"]:
             continue
 
-        if args.fixed_version:
-            fixed_version = args.fixed_version
+        if cve_info["releases"][args.release]["status"] == "open":
+            fixed_version = "(unfixed)"
         else:
-            if cve_info["releases"][args.release]["status"] == "open":
-                fixed_version = "(unfixed)"
-            else:
-                fixed_version = cve_info["releases"][args.release]["fixed_version"]
+            fixed_version = cve_info["releases"][args.release]["fixed_version"]
         if fixed_version == "0":
             raise CVENotFound(
                 f"Debian {args.release} was not affected by {cve_id}.\n"
@@ -346,8 +359,11 @@ def get_cve_details_from_json(args: argparse.Namespace) -> list[dict]:
     return results
 
 
-def get_vuln_version(cve_details: list[dict]) -> list[dict]:
+def get_vuln_version(args: argparse.Namespace, cve_details: list[dict]) -> list[dict]:
     for item in cve_details:
+        if args.vulnerable_version:
+            item["vuln_version"] = args.vulnerable_version
+            continue
         url = f"http://snapshot.debian.org/mr/package/{item['src_package']}/"
         response = requests.get(url, timeout=DEFAULT_TIMEOUT).json()["result"]
         known_versions = [x["version"] for x in response if "~bpo" not in x["version"]]
@@ -422,9 +438,15 @@ def get_hash_and_bin_names(
 def get_snapshot(cve_details: list[dict]):
     snapshot_id = []
     for item in cve_details:
-        url = f"http://snapshot.debian.org/mr/file/{item['hash']}/info"
-        response = requests.get(url, timeout=DEFAULT_TIMEOUT).json()["result"][-1]
-        snapshot_id.append(response["first_seen"])
+        value = item.get('hash')
+        if value is None:
+            print(f"Not found in '{item}'")
+        else:
+            url = f"http://snapshot.debian.org/mr/file/{item['hash']}/info"
+
+            response = requests.get(url, timeout=DEFAULT_TIMEOUT).json()["result"][-1]
+            snapshot_id.append(response["first_seen"])
+        
 
     if not snapshot_id:
         raise Exception("Snapshot id not found.")
@@ -446,65 +468,59 @@ def write_cmdline(args: argparse.Namespace):
         cmdline_file.write("\n")
 
 
-def write_sources(args: argparse.Namespace, snapshot_id: str, vuln_fixed: bool):
-    sources_path = args.directory / "snapshot.list"
-    with sources_path.open("w", encoding="utf-8") as sources_file:
-        if vuln_fixed:
-            url = f"http://snapshot.debian.org/archive/debian/{snapshot_id}/"
-            release = ["testing", "stable", "unstable"]
-        for rel in release:
-            sources_file.write(f"deb {url} {rel} main\n")
+def prepare_sources(snapshot_id: str, vuln_fixed: bool):
+    options = "[check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes]"
+    url = f"http://snapshot.debian.org/archive/debian/{snapshot_id}/"
+    if vuln_fixed:
+        release = ["testing", "stable", "unstable"]
+    return [f"deb {options} {url} {rel} main" for rel in release]
 
 
-def write_dockerfile(args: argparse.Namespace):
+def write_dockerfile(args: argparse.Namespace, cve_details, source_lines: list[str]):
     target_dockerfile = args.directory / "Dockerfile"
     decret_rootpath = Path(__file__).resolve().parent
-    src_dockerfile = decret_rootpath / "Dockerfile.template"
-    dockerfile_content = [src_dockerfile.read_bytes()]
-    print(args.run_lines)
-    if args.run_lines:
-        dockerfile_content.append(b"")
-        for line in args.run_lines:
-            dockerfile_content.append(("RUN " + line).encode("UTF-8"))
-    if args.cmd_line:
-        dockerfile_content.append(b"")
-        dockerfile_content.append(("CMD " + args.cmd_line).encode("UTF-8"))
-        dockerfile_content.append(b"")
-    target_dockerfile.write_bytes(b"\n".join(dockerfile_content))
-
-
-def build_docker(args, cve_details):
-    binary_packages = []
-    fixed_version = ""
-    for item in cve_details:
-        for bin_name in item["bin_name"]:
-            bin_name_and_version = [bin_name + f"={item['vuln_version']}"]
-            binary_packages.extend(bin_name_and_version)
-            fixed_version = fixed_version + f"{bin_name}={item['fixed_version']} "
-
-    print("Building the Docker image.")
-    docker_image_name = f"{args.release}/cve-{args.cve_number}"
-    default_packages = ["aptitude", "nano", "adduser"]
+    src_template = decret_rootpath / "Dockerfile.template"
+    template_content = src_template.read_text()
+    template = jinja2.Environment().from_string(template_content)
 
     if args.release in DEBIAN_RELEASES[:6]:
         apt_flag = "--force-yes"
     else:
         apt_flag = "--allow-unauthenticated --allow-downgrades"
 
+    default_packages = " ".join(["aptitude", "nano", "adduser"])
+
+    binary_packages = []
+    for item in cve_details:
+        for bin_name in item["bin_name"]:
+            bin_name_and_version = [bin_name + f"={item['vuln_version']}"]
+            binary_packages.extend(bin_name_and_version)
+
+    content = template.render(
+        debian_release=args.release,
+        source_lines=source_lines,
+        apt_flag=apt_flag,
+        default_packages=default_packages,
+        package_name=" ".join(binary_packages),
+        run_lines=args.run_lines,
+        cmd_line=args.cmd_line
+    )
+    target_dockerfile.write_text(content)
+
+
+def build_docker(args):
+    print("Building the Docker image.")
+    docker_image_name = f"{args.release}/cve-{args.cve_number}"
+
     if args.do_not_use_sudo:
         build_cmd = []
     else:
         build_cmd = ["sudo"]
+
+    build_cmd.extend(["PROGRESS_NO_TRUNC=1"])
     build_cmd.extend(["docker", "build"])
+    build_cmd.extend(["--progress", "plain", "--no-cache"])
     build_cmd.extend(["-t", docker_image_name])
-    for arg_name, arg_value in [
-        ("DEFAULT_PACKAGE", " ".join(default_packages)),
-        ("DEBIAN_RELEASE", args.release),
-        ("PACKAGE_NAME", " ".join(binary_packages)),
-        ("APT_FLAG", apt_flag),
-        ("FIXED_VERSION", fixed_version),
-    ]:
-        build_cmd.extend(["--build-arg", f"{arg_name}={arg_value}"])
     build_cmd.append(args.dirname)
 
     try:
@@ -538,7 +554,7 @@ def run_docker(args):
         raise FatalError("Error while running the container") from exc
 
 
-def main():  # pragma: no cover
+def init_decret():  # pragma: no cover
     # First handle the parameters
     args = arg_parsing()
     check_requirements(args)
@@ -557,6 +573,11 @@ def main():  # pragma: no cover
             )
             browser = None
             args.selenium = None
+
+    return args, browser
+
+def main():  # pragma: no cover
+    args, browser = init_decret()
 
     # Then get the details for the given CVE
     try:
@@ -581,7 +602,7 @@ def main():  # pragma: no cover
     print(f"CVE details fetched.\n {cve_details}\n\n")
 
     print("Getting the vulnerable version.")
-    cve_details = get_vuln_version(cve_details)
+    cve_details = get_vuln_version(args, cve_details)
     print(f"vulnerable version : {cve_details[0]['vuln_version']}\n\n")
 
     print("Getting the hash of the package")
@@ -593,23 +614,28 @@ def main():  # pragma: no cover
     if browser:
         try:
             # Get the exploits from https://www.exploit-db.com/
-            n_exploits = get_exploit(browser, args)
-            print(f"PoC : Found {n_exploits} exploits.")
+            exploit_urls = get_exploit(browser, args)
+            n_exploits = len(exploit_urls)
+            print(f"PoC: Found {n_exploits} exploits")
+            for url in exploit_urls:
+                print(f"      {url}")
         except WebDriverException as exc:
             print(f"Warning: could not fetch exploits properly: {exc}", file=sys.stderr)
         finally:
             browser.quit()
 
-    write_sources(args, snapshot_id, vuln_fixed)
+    source_lines = prepare_sources(snapshot_id, vuln_fixed)
     if not vuln_fixed:
         print(f"\n\nVulnerability unfixed. Using a {LATEST_RELEASE} container.\n\n")
         args.release = LATEST_RELEASE
 
-    write_dockerfile(args)
+    write_dockerfile(args, cve_details, source_lines)
     write_cmdline(args)
-    build_docker(args, cve_details)
-    if not args.dont_run:
-        run_docker(args)
+    if args.only_create_dockerfile:
+        print("My work here is done.")
+        return
+    build_docker(args)
+    run_docker(args)
 
 
 if __name__ == "__main__":  # pragma: no cover

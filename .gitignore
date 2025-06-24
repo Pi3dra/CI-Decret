@@ -5,3 +5,5 @@ venv
 .coverage
 __pycache__
 cached-files
+cve-*-*
+.idea

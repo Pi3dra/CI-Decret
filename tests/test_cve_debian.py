@@ -1,14 +1,15 @@
 """
 Software Name : decret (DEbian Cve REproducer Tool)
 Version : 0.1
-SPDX-FileCopyrightText : Copyright (c) 2023 Orange
+SPDX-FileCopyrightText : Copyright (c) 2023-2025 Orange
 SPDX-License-Identifier : BSD-3-Clause
 
 This software is distributed under the BSD 3-Clause "New" or "Revised" License,
 the text of which is available at https://opensource.org/licenses/BSD-3-Clause
 or see the "license.txt" file for more not details.
 
-Authors : Clément PARSSEGNY, Olivier LEVILLAIN, Maxime BELAIR, Mathieu BACOU
+Authors : Clément PARSSEGNY, Olivier LEVILLAIN, Maxime BELAIR, Mathieu BACOU,
+Nicolas DEJON
 Software description : A tool to reproduce vulnerability affecting Debian
 It gathers details from the Debian metadata and exploits from exploit-db.com
 in order to build and run a vulnerable Docker container to test and
@@ -43,7 +44,7 @@ def test_get_cve_info_cve_2020_7247(bullseye_args):
     assert results[0]["release"] == "bullseye"
     assert results[0]["fixed_version"] == "6.6.2p1-1"
 
-    results = get_vuln_version(results)
+    results = get_vuln_version(bullseye_args, results)
     assert results[0]["vuln_version"] == "6.6.1p1-5"
 
     results = get_hash_and_bin_names(bullseye_args, results)
@@ -63,7 +64,7 @@ def test_get_cve_info_cve_2014_0160(wheezy_args):
     assert results[0]["release"] == "wheezy"
     assert results[0]["fixed_version"] == "1.0.1e-2+deb7u5"
 
-    results = get_vuln_version(results)
+    results = get_vuln_version(wheezy_args, results)
     assert results[0]["vuln_version"] == "1.0.1e-2+deb7u4"
 
     results = get_hash_and_bin_names(wheezy_args, results)

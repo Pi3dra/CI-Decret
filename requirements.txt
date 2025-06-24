@@ -2,7 +2,7 @@ astroid==2.12.13
 async-generator==1.10
 attrs==23.1.0
 CacheControl==0.12.11
-certifi==2023.5.7
+certifi==2023.7.22
 charset-normalizer==3.1.0
 commonmark==0.9.1
 coverage==7.0.0
@@ -14,8 +14,10 @@ html5lib==1.1
 idna==3.4
 iniconfig==1.1.1
 isort==5.11.3
+Jinja2==3.1.3
 lazy-object-proxy==1.8.0
 lockfile==0.12.2
+MarkupSafe==2.1.3
 mccabe==0.7.0
 msgpack==1.0.4
 mypy==0.991
@@ -28,7 +30,7 @@ pip-audit==2.4.10
 pip-requirements-parser==32.0.1
 platformdirs==2.6.0
 pluggy==1.0.0
-Pygments==2.13.0
+Pygments==2.15.1
 pylint==2.15.9
 pyparsing==3.0.9
 PySocks==1.7.1
@@ -37,7 +39,7 @@ pytest-cov==4.0.0
 requests==2.31.0
 resolvelib==0.9.0
 rich==12.6.0
-selenium==4.9.1
+selenium==4.14.0
 six==1.16.0
 sniffio==1.3.0
 sortedcontainers==2.4.0
@@ -49,7 +51,7 @@ trio-websocket==0.10.2
 types-requests==2.28.11.5
 types-urllib3==1.26.25.4
 typing-extensions==4.4.0
-urllib3===1.26.15
+urllib3==1.26.18
 webencodings==0.5.1
 wrapt==1.14.1
 wsproto==1.2.0 
