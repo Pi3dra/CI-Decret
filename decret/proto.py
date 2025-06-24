@@ -29,10 +29,12 @@ def debug(string):
 
 
 class VulnerableConfig:
-    def __init__(self, version=None, timestamp=None, method=None):
+    def __init__(self, version, method):
         self.version = version
-        self.timestamp = timestamp
+        self.timestamp = None
         self.method = method
+        self.pkg_hash = None
+        self.bin_names = None
 
     def to_string(self):
         return (
@@ -41,8 +43,81 @@ class VulnerableConfig:
             f"   method: {self.method}\n"  # [bug,DSA,n-1,still_vulnerable]
         )
 
+    def get_bin_names(self, package):
+        bin_names = []
+        url = (
+            f"http://snapshot.debian.org/mr/package"
+            f"/{package}/{self.version}/binpackages"
+        )
+
+        try:
+            response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+            response.raise_for_status()
+            response = response.json()["result"]
+            for res in response:
+                bin_names.append(res["name"])
+        except requests.exceptions.RequestException as err:
+            print(f"get_bin_names failed with: {err}")
+
+    def get_hash_and_bin_names(self, args, package):
+        try:
+            url = (
+                f"http://snapshot.debian.org/mr/binary"
+                f"/{package}/{self.version}/binfiles"
+            )
+
+            response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+            response.raise_for_status()
+            response = response.json()["result"]
+            for res in response:
+                if res["architecture"] == "amd64" or res["architecture"] == "all":
+                    self.pkg_hash = res["hash"]
+                    break
+            self.bin_names = [package]
+
+        except (requests.exceptions.RequestException, KeyError) as error:
+            try:
+                url = (
+                    f"http://snapshot.debian.org/mr/package"
+                    f"/{package}/{self.version}/srcfiles"
+                )
+                response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+                response.raise_for_status()
+                response = response.json()["result"]
+
+                self.pkg_hash = response[-1]["hash"]
+                self.get_bin_names(package)
+            except Exception as error2:
+                raise SearchError(
+                    f"Couldn't find the source files for the linux package {package} with {error},."
+                ) from error2
+
+            if package == "linux":
+                print("WARNING: Kernel Vulnerabilities are not yet supported by DECRET")
+                self.bin_names = []
+
+            # This might not work as intended with the new methods
+            if args.bin_package:
+                if args.bin_package in self.bin_names:
+                    self.bin_names = [args.bin_package]
+                else:
+                    raise SearchError(
+                        "Non existing binary package provided. Check your '-p' option."
+                    ) from error
+
+    def get_snapshot(self):
+        try:
+            url = f"http://snapshot.debian.org/mr/file/{self.pkg_hash}/info"
+            response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+            response.raise_for_status()
+            response = response.json()["result"][-1]
+            self.timestamp = response["first_seen"]
+        except (requests.exceptions.RequestException, KeyError) as error:
+            raise SearchError(f"failed to find snapshot with: {error}") from error
+
 
 class Cve:
+    # pylint: disable=too-many-arguments
     def __init__(
         self,
         package=None,
@@ -50,7 +125,7 @@ class Cve:
         fixed=None,
         advisory=None,
         bugids=None,
-        vulnerable=None,
+        vulnerable=None,  # TODO: this shouldn't be a list, as we only keep one
     ):
         self.package = package
         self.release = release
@@ -124,6 +199,8 @@ class Cve:
         return self
 
     # This could be cleaner with an iterator handling the bugids
+    # TODO: Split this
+    #pylint: disable=(too-many-locals)
     def bug_version_lookup(self, args, check=False):
         self.init_vulnerable()
 
@@ -177,7 +254,7 @@ class Cve:
                     debug(versions)
 
                     # We treat cases where one bug concerns many versions
-                    # TODO, Handle cases where the packagename is prepended to the version
+                    # TODO: Handle cases where the packagename is prepended to the version
                     for version in versions:
                         vulnerable_config = VulnerableConfig(
                             version=version, method="Bug" if not check else "DSA"
@@ -233,6 +310,9 @@ class Cve:
         self.bug_version_lookup(args, check=True)
 
     def vulnerable_versions_lookup(self, args):
+        # TODO: Refactor this to send an error if a version isn't found,
+        # This way it can be filtered
+
         try:
             self.bug_version_lookup(args)
         except (SearchError, CVENotFound) as error:
@@ -242,9 +322,9 @@ class Cve:
                 debug("\tattempting to find version using DSAs")
                 try:
                     self.dsa_version_lookup(args)
-                except (SearchError, CVENotFound) as error:
+                except (SearchError, CVENotFound) as error2:
                     debug(
-                        f"\t\tFinding version through DSAs failed with:\n\t\t\t{error}"
+                        f"\t\tFinding version through DSAs failed with:\n\t\t\t{error2}"
                         "\t\t\tattempting to find the preceding version of the fixed one"
                     )
                     try:
@@ -399,6 +479,17 @@ def versions_lookup(cve_list, args):
         cve.vulnerable_versions_lookup(args)
 
 
+def get_snapshots(cve_list, args):
+    for cve in cve_list:
+        for config in cve.vulnerable:
+            try:
+                config.get_hash_and_bin_names(cve.package, args)
+                config.get_snapshot()
+            except SearchError as error:
+                debug(f"failed to get snapshot with: {error}")
+                cve_list.remove(cve)
+
+
 def db_is_up_to_date():
     """
     Returns a tuple ( bool * string) indicating if the db needs updating and the new hash
@@ -408,13 +499,13 @@ def db_is_up_to_date():
     destination_dir = "cached-files"
     hash_file_path = os.path.join(destination_dir, "files_exploits.hash")
     url = (
-            f"https://gitlab.com/api/v4/projects/{project_id}"
-            f"/repository/files/{file_path}/raw?ref=main"
+        f"https://gitlab.com/api/v4/projects/{project_id}"
+        f"/repository/files/{file_path}/raw?ref=main"
     )
 
-        # TODO: Test this further, curl needs 0,5s 
-        # meanwhile this takes 10 secs to get a HEAD request
-        # Maybe it's my pc lol
+    # TODO: Test this further, curl needs 0,5s
+    # meanwhile this takes 10 secs to get a HEAD request
+    # Maybe it's my pc lol
     start = time.perf_counter()
     head = requests.head(url, timeout=DEFAULT_TIMEOUT)
     duration = time.perf_counter() - start
@@ -440,8 +531,10 @@ def download_db():
     destination_dir = "cached-files"
     hash_file_path = os.path.join(destination_dir, "files_exploits.hash")
     csv_file_path = os.path.join(destination_dir, file_path)
-    url = (f"https://gitlab.com/api/v4/projects/{project_id}"
-           f"/repository/files/{file_path}/raw?ref=main")
+    url = (
+        f"https://gitlab.com/api/v4/projects/{project_id}"
+        f"/repository/files/{file_path}/raw?ref=main"
+    )
 
     try:
         up_to_date, blob_hash = db_is_up_to_date()
@@ -529,12 +622,13 @@ def get_exploit(args):
 
 
 if __name__ == "__main__":
-
-    # TODO: find a way to get_exploit with requests instead of selenium
+    # TODO: Understand how we deal with the (unfixed) tag now
+    # TODO: cve.vulnerable shouldn't be a list
+    # TODO: fix bug_lookup
     try:
-        args = argparse.Namespace()
-        args.cve_number = "2016-3714"
-        args.directory = "hey_listen!"
+        arguments = argparse.Namespace()
+        arguments.cve_number = "2016-3714"
+        arguments.directory = "hey_listen!"
 
         """
 
