@@ -35,7 +35,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build docker (CVE-2016-3714)
-        run: python3 -m decret.decret -r jessie -n 2016-3714 -s --only-create-dockerfile
+        run: python3 -m decret.decret -r jessie -n 2016-3714 -s --dont-run
 
 
       - name: Tag image for GHCR
