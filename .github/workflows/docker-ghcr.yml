@@ -45,4 +45,4 @@ jobs:
 
       - name: Push image to GHCR
         run: |
-          docker push ghcr.io/${{ github.repository }}/cve-2016-3714:latest
+          docker push ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
