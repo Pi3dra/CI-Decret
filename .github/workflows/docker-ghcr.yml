@@ -40,7 +40,8 @@ jobs:
 
       - name: Tag image for GHCR
         run: |
-          docker tag jessie/cve-2016-3714 ghcr.io/${{ github.repository }}/cve-2016-3714:latest
+          docker tag jessie/cve-2016-3714 ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
+        
 
       - name: Push image to GHCR
         run: |
