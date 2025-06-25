@@ -468,7 +468,7 @@ def prepare_sources(snapshot_id: str, vuln_fixed: bool):
     url = f"http://snapshot.debian.org/archive/debian/{snapshot_id}/"
     if vuln_fixed:
         release = ["testing", "stable", "unstable"]
-    return [f"deb {options} {url} {rel} main" for rel in release]
+        return [f"deb {options} {url} {rel} main" for rel in release]
 
 
 def write_dockerfile(args: argparse.Namespace, cve_details, source_lines: list[str]):
@@ -478,7 +478,7 @@ def write_dockerfile(args: argparse.Namespace, cve_details, source_lines: list[s
     template_content = src_template.read_text()
     template = jinja2.Environment().from_string(template_content)
 
-    if args.release in DEBIAN_RELEASES[:6]:
+    if args.release in DEBIAN_RELEASES[:7]:
         apt_flag = "--force-yes"
     else:
         apt_flag = "--allow-unauthenticated --allow-downgrades"
@@ -523,25 +523,6 @@ def build_docker(args):
     except subprocess.CalledProcessError as exc:
         raise FatalError("Error while building the container") from exc
 
-"""
-def build_docker(args):
-    print("Building the Docker image.")
-    docker_image_name = f"{args.release}/cve-{args.cve_number}"
-
-    build_cmd = ["docker", "build", "--progress", "plain", "--no-cache", "-t", docker_image_name, args.dirname]
-
-    if not args.do_not_use_sudo:
-        build_cmd.insert(0, "sudo")
-
-    env = os.environ.copy()
-    env["DOCKER_BUILDKIT"] = "1"
-    env["PROGRESS_NO_TRUNC"] = "1"
-
-    try:
-        subprocess.run(build_cmd, check=True, env=env)
-    except subprocess.CalledProcessError as exc:
-        raise FatalError("Error while building the container") from exc
-"""
 
 def run_docker(args):
     docker_image_name = f"{args.release}/cve-{args.cve_number}"

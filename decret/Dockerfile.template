@@ -1,6 +1,7 @@
 FROM debian:{{debian_release}}
 
-{% for source_line in source_lines %}RUN echo '{{source_line}}' >> /etc/apt/sources.list.d/snapshot.list
+RUN echo '' > /etc/apt/sources.list
+{% for source_line in source_lines %}RUN echo '{{source_line}}' >> /etc/apt/sources.list
 {% endfor %}
 
 RUN apt-get update

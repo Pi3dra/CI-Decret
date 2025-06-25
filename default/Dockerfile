@@ -1,15 +1,13 @@
 FROM debian:jessie
 
 RUN echo '' > /etc/apt/sources.list
-RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ testing main' >> /etc/apt/sources.list.d/snapshot.list
-RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ stable main' >> /etc/apt/sources.list.d/snapshot.list
-RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ unstable main' >> /etc/apt/sources.list.d/snapshot.list
+RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ testing main' >> /etc/apt/sources.list
+RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ stable main' >> /etc/apt/sources.list
+RUN echo 'deb [check-valid-until=no allow-insecure=yes allow-downgrade-to-insecure=yes] http://snapshot.debian.org/archive/debian/20150213T100744Z/ unstable main' >> /etc/apt/sources.list
 
-RUN echo "Contents of /etc/apt/sources.list:" && cat /etc/apt/sources.list && \
-    echo "Contents of /etc/apt/sources.list.d/snapshot.list:" && cat /etc/apt/sources.list.d/snapshot.list
 
-RUN apt-get update && \
-apt-get install -y --allow-unauthenticated --fix-missing aptitude nano adduser
+RUN apt-get update
+RUN apt-get install -y --force-yes --fix-missing aptitude nano adduser
 
 RUN DEBIAN_FRONTEND=non-interactive aptitude -y --allow-untrusted -o Aptitude::ProblemResolver::SolutionCost='100*canceled-actions,200*removals' install graphicsmagick=1.3.20-3+deb8u1 imagemagick=8:6.8.9.9-5+deb8u1
 
