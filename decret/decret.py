@@ -19,6 +19,7 @@ illustrate security concepts.
 from typing import Tuple
 
 import argparse
+import os
 import json
 from pathlib import Path
 import re
@@ -522,6 +523,25 @@ def build_docker(args):
     except subprocess.CalledProcessError as exc:
         raise FatalError("Error while building the container") from exc
 
+"""
+def build_docker(args):
+    print("Building the Docker image.")
+    docker_image_name = f"{args.release}/cve-{args.cve_number}"
+
+    build_cmd = ["docker", "build", "--progress", "plain", "--no-cache", "-t", docker_image_name, args.dirname]
+
+    if not args.do_not_use_sudo:
+        build_cmd.insert(0, "sudo")
+
+    env = os.environ.copy()
+    env["DOCKER_BUILDKIT"] = "1"
+    env["PROGRESS_NO_TRUNC"] = "1"
+
+    try:
+        subprocess.run(build_cmd, check=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        raise FatalError("Error while building the container") from exc
+"""
 
 def run_docker(args):
     docker_image_name = f"{args.release}/cve-{args.cve_number}"
