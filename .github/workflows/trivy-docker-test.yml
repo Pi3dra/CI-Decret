@@ -1,8 +1,11 @@
 name: Trivy CVE Tests
 
+#This only runs after building and pushing containers to GHCR
 on:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: ["Build and Push containers to GHCR"]
+    types:
+      - completed
 
 permissions:
   contents: read

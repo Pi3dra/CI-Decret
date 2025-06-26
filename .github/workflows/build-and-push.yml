@@ -26,6 +26,14 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install requirements
         run: |
           python -m pip install --upgrade pip
@@ -38,25 +46,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build docker (CVE-2016-3714)
-        run: |
-          python3 -m decret.decret -r jessie -n 2016-3714 -s --dont-run
-          python3 -m decret.decret --port 4433 -n 2014-0160 -r bullseye --directory heartbleed -s --dont-run
-          python3 -m decret.decret -n 2020-7247 -r bullseye --directory opensmtpd -s
-          python3 -m decret.decret -n 2023-22809 -r bullseye --directory sudoedit -s
+      - name: Build , Tag and Push Docker Images
+              run: |
+                CVES=(
+                  "jessie cve-2016-3714 --dont-run"
+                  "bullseye cve-2014-0160 --directory heartbleed --dont-run"
+                  "bullseye cve-2020-7247 --directory opensmtpd"
+                  "bullseye cve-2023-22809 --directory sudoedit"
+                )
 
-      - name: Tag image for GHCR
-        run: |
-          docker tag jessie/cve-2016-3714 ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
-          docker tag bullseye/cve-2014-0160 ghcr.io/pi3dra/ci-decret/cve-2014-0160:latest
-          docker tag bullseye/cve-2020-7247 ghcr.io/pi3dra/ci-decret/cve-2020-7247:latest
-          docker tag bullseye/cve-2023-22809 ghcr.io/pi3dra/ci-decret/cve-2023-22809:latest
-        
+                for entry in "${CVES[@]}"; do
+                  read -r distro cve options <<< "$entry"
+                  echo "Building image for $cve on $distro"
 
-      - name: Push image to GHCR
-        run: |
-          docker push ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
-          docker push ghcr.io/pi3dra/ci-decret/cve-2014-0160:latest
-          docker push ghcr.io/pi3dra/ci-decret/cve-2020-7247:latest
-          docker push ghcr.io/pi3dra/ci-decret/cve-2023-22809:latest
+                  # Build
+                  python3 -m decret.decret -r "$distro" -n "${cve#cve-}" $options -s
+
+                  # Tag 
+                  docker tag "$distro/$cve" "ghcr.io/pi3dra/ci-decret/$cve:latest"
+            
+                  # Push 
+                  docker push "ghcr.io/pi3dra/ci-decret/$cve:latest"
+                done
 
