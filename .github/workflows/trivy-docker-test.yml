@@ -2,6 +2,12 @@ name: Trivy CVE Tests
 
 #This only runs after building and pushing containers to GHCR
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/trivy-docker-test.yml
+
   workflow_run:
     workflows: ["Build and Push containers to GHCR"]
     types:
