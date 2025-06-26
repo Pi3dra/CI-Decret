@@ -1,10 +1,10 @@
-#name: Docker Image CI
+name: Manual CVE Tests
 
-#on:
-#  push:
-#    branches: [ "main" ]
-#  pull_request:
-#    branches: [ "main" ]
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
 
@@ -25,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-    - name: Build docker (CVE-2016-3714)
+    - name: Pull docker (CVE-2016-3714)
       run: python3 decret.py -r jessie -n 2016-3714 -s --dont-run
 
     - name: Test vuln (CVE-2016-3714)

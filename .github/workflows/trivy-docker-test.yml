@@ -1,4 +1,4 @@
-name: Test for CVE-2016-3714
+name: Trivy CVE Tests
 
 on:
   push:

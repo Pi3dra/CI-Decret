@@ -1,9 +1,13 @@
-name: Build and Push to GHCR
+name: Build and Push containers to GHCR
 
+#This only runs if changes to decret itself or this workflow are made
 on:
   push:
     branches:
       - main  
+    paths:
+      - decret/decret.py
+      - .github/workflows/build-and-push.yml
 
 jobs:
   build-and-push:
