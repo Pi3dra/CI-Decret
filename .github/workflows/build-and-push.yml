@@ -39,14 +39,24 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build docker (CVE-2016-3714)
-        run: python3 -m decret.decret -r jessie -n 2016-3714 -s --dont-run
-
+        run: |
+          python3 -m decret.decret -r jessie -n 2016-3714 -s --dont-run
+          python3 -m decret.decret --port 4433 -n 2014-0160 -r bullseye --directory heartbleed -s --dont-run
+          python3 -m decret.decret -n 2020-7247 -r bullseye --directory opensmtpd -s
+          python3 -m decret.decret -n 2023-22809 -r bullseye --directory sudoedit -s
 
       - name: Tag image for GHCR
         run: |
           docker tag jessie/cve-2016-3714 ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
+          docker tag bullseye/cve-2014-0160 ghcr.io/pi3dra/ci-decret/cve-2014-0160:latest
+          docker tag bullseye/cve-2020-7247 ghcr.io/pi3dra/ci-decret/cve-2020-7247:latest
+          docker tag bullseye/cve-2023-22809 ghcr.io/pi3dra/ci-decret/cve-2023-22809:latest
         
 
       - name: Push image to GHCR
         run: |
           docker push ghcr.io/pi3dra/ci-decret/cve-2016-3714:latest
+          docker push ghcr.io/pi3dra/ci-decret/cve-2014-0160:latest
+          docker push ghcr.io/pi3dra/ci-decret/cve-2020-7247:latest
+          docker push ghcr.io/pi3dra/ci-decret/cve-2023-22809:latest
+
