@@ -44,11 +44,17 @@ DEBIAN_RELEASES = [
     "stretch",
     "buster",
     "bullseye",
-    "bookworm",
-    "trixie",  # These just helps to retrieve information easier
+    "bookworm", # These just helps to retrieve information easier
     "(unstable)",  # might be needed to treat it differently
     "sid",
+    "trixie",
 ]
+
+
+#The releases available here: http://ftp.debian.org/debian/ crash if the
+# sources.list is overwriten to only use the snapshot, meanwhile those
+# who are not here need to strictly use the snapshot if not they crash
+AVAILABLE_ON_MAIN_SITE = DEBIAN_RELEASES[-6:]
 
 LATEST_RELEASE = DEBIAN_RELEASES[-1]
 
@@ -497,7 +503,11 @@ def write_dockerfile(args: argparse.Namespace, cve_details, source_lines: list[s
             bin_name_and_version = [bin_name + f"={item['vuln_version']}"]
             binary_packages.extend(bin_name_and_version)
 
+    #Old reseases should only use the snapshot sources
+    clear_sources = args.release not in AVAILABLE_ON_MAIN_SITE
+
     content = template.render(
+        clear_sources=clear_sources,
         debian_release=args.release,
         source_lines=source_lines,
         apt_flag=apt_flag,
