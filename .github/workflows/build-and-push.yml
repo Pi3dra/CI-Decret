@@ -21,18 +21,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+        #i think the directory flaf is not needed but just in case
+        #the --dont-run flag on the other hand, is obligatory
           - distro: jessie
             cve: cve-2016-3714
-            options: "--dont-run"
+            options: "--directory imagetragick --dont-run"
           - distro: bullseye
             cve: cve-2014-0160
             options: "--directory heartbleed --dont-run"
           - distro: bullseye
             cve: cve-2020-7247
-            options: "--directory opensmtpd"
+            options: "--directory opensmtpd --dont-run"
           - distro: bullseye
             cve: cve-2023-22809
-            options: "--directory sudoedit"
+            options: "--directory sudoedit --dont-run"
 
     permissions:
       contents: read
