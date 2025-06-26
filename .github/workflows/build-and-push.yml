@@ -47,25 +47,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build , Tag and Push Docker Images
-              run: |
-                CVES=(
-                  "jessie cve-2016-3714 --dont-run"
-                  "bullseye cve-2014-0160 --directory heartbleed --dont-run"
-                  "bullseye cve-2020-7247 --directory opensmtpd"
-                  "bullseye cve-2023-22809 --directory sudoedit"
-                )
+        run: |
+          CVES=(
+            "jessie cve-2016-3714 --dont-run"
+            "bullseye cve-2014-0160 --directory heartbleed --dont-run"
+            "bullseye cve-2020-7247 --directory opensmtpd"
+            "bullseye cve-2023-22809 --directory sudoedit"
+          )
 
-                for entry in "${CVES[@]}"; do
-                  read -r distro cve options <<< "$entry"
-                  echo "Building image for $cve on $distro"
+          for entry in "${CVES[@]}"; do
+            read -r distro cve options <<< "$entry"
+            echo "Building image for $cve on $distro"
+            # Build
+            python3 -m decret.decret -r "$distro" -n "${cve#cve-}" $options -s
 
-                  # Build
-                  python3 -m decret.decret -r "$distro" -n "${cve#cve-}" $options -s
+            # Tag 
+            docker tag "$distro/$cve" "ghcr.io/pi3dra/ci-decret/$cve:latest"
 
-                  # Tag 
-                  docker tag "$distro/$cve" "ghcr.io/pi3dra/ci-decret/$cve:latest"
-            
-                  # Push 
-                  docker push "ghcr.io/pi3dra/ci-decret/$cve:latest"
-                done
-
+            # Push 
+            docker push "ghcr.io/pi3dra/ci-decret/$cve:latest"
+          done
