@@ -12,6 +12,27 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    
+
+    #This separates all containers to different jobs
+    #To better see errors, and to build containers even
+    #if one fails
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: jessie
+            cve: cve-2016-3714
+            options: "--dont-run"
+          - distro: bullseye
+            cve: cve-2014-0160
+            options: "--directory heartbleed --dont-run"
+          - distro: bullseye
+            cve: cve-2020-7247
+            options: "--directory opensmtpd"
+          - distro: bullseye
+            cve: cve-2023-22809
+            options: "--directory sudoedit"
 
     permissions:
       contents: read
@@ -48,22 +69,10 @@ jobs:
 
       - name: Build , Tag and Push Docker Images
         run: |
-          CVES=(
-            "jessie cve-2016-3714 --dont-run"
-            "bullseye cve-2014-0160 --directory heartbleed --dont-run"
-            "bullseye cve-2020-7247 --directory opensmtpd"
-            "bullseye cve-2023-22809 --directory sudoedit"
-          )
+          #build
+          python3 -m decret.decret -r "${{ matrix.distro }}" -n "${{ matrix.cve#cve- }}" ${{ matrix.options }} -s
+          #tag
+          docker tag "${{ matrix.distro }}/${{ matrix.cve }}" "ghcr.io/pi3dra/ci-decret/${{ matrix.cve }}:latest"
+          #push
+          docker push "ghcr.io/pi3dra/ci-decret/${{ matrix.cve }}:latest"
 
-          for entry in "${CVES[@]}"; do
-            read -r distro cve options <<< "$entry"
-            echo "Building image for $cve on $distro"
-            # Build
-            python3 -m decret.decret -r "$distro" -n "${cve#cve-}" $options -s
-
-            # Tag 
-            docker tag "$distro/$cve" "ghcr.io/pi3dra/ci-decret/$cve:latest"
-
-            # Push 
-            docker push "ghcr.io/pi3dra/ci-decret/$cve:latest"
-          done
