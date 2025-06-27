@@ -22,20 +22,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        #i think the directory flaf is not needed but just in case
-        #the --dont-run flag on the other hand, is obligatory
+        #I don't know if the directory flag is really needed here 
+        #but just to be safe and prevent potential overwriting by the parallel matrix
           - distro: jessie
             cve: cve-2016-3714
-            options: "--directory imagetragick --dont-run"
+            options: "--directory imagetragick" 
           - distro: bullseye
             cve: cve-2014-0160
-            options: "--directory heartbleed --dont-run"
+            options: "--directory heartbleed"
           - distro: bullseye
             cve: cve-2020-7247
-            options: "--directory opensmtpd --dont-run"
+            options: "--directory opensmtpd"
           - distro: bullseye
             cve: cve-2023-22809
-            options: "--directory sudoedit --dont-run"
+            options: "--directory sudoedit"
 
     permissions:
       contents: read

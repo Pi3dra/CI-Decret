@@ -651,7 +651,7 @@ def main():  # pragma: no cover
         print("My work here is done.")
         return
     build_docker(args)
-    if args.dont_run:
+    if args.dont_run or RUNS_ON_GITHUB_ACTIONS:
         print("My work here is done.")
         return
 
