@@ -7,6 +7,7 @@ on:
       - main  
     paths:
       - decret/decret.py
+      - decret/Dockerfile.template
       - .github/workflows/build-and-push.yml
 
 jobs:
