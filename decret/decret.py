@@ -1,8 +1,7 @@
 """
 Software Name : decret (DEbian Cve REproducer Tool)
 Version : 0.1
-SPDX-FileCopyrightText : Copyright (c) 2023-2025 Orange
-SPDX-License-Identifier : BSD-3-Clause
+SPDX-FileCopyrightText : Copyright (c) 2023-2025 Orange SPDX-License-Identifier : BSD-3-Clause
 
 This software is distributed under the BSD 3-Clause "New" or "Revised" License,
 the text of which is available at https://opensource.org/licenses/BSD-3-Clause
@@ -61,6 +60,11 @@ LATEST_RELEASE = DEBIAN_RELEASES[-1]
 DEFAULT_TIMEOUT = 10
 
 DOCKER_SHARED_DIR = "/tmp/decret"
+
+#makes testing easier:
+#-Copies the mounted folder with exploits on the image
+#-Avoids running the image interactively after build
+RUNS_ON_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
 
 
 class FatalError(BaseException):
@@ -514,7 +518,8 @@ def write_dockerfile(args: argparse.Namespace, cve_details, source_lines: list[s
         default_packages=default_packages,
         package_name=" ".join(binary_packages),
         run_lines=args.run_lines,
-        cmd_line=args.cmd_line
+        cmd_line=args.cmd_line,
+        copy_exploits=RUNS_ON_GITHUB_ACTIONS
     )
     target_dockerfile.write_text(content)
 

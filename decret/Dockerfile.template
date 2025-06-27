@@ -14,6 +14,10 @@ RUN apt-get install -y {{apt_flag}} --fix-missing {{default_packages}}
 {% endif %}
 RUN DEBIAN_FRONTEND=non-interactive aptitude -y --allow-untrusted -o Aptitude::ProblemResolver::SolutionCost='100*canceled-actions,200*removals' install {{package_name}}
 
+{% if copy_exploits %}
+COPY /tmp/decret /tmp/decret_copy/
+{% endif %}
+
 ARG USERNAME=toto
 ARG PASSWORD=toto
 RUN useradd -m ${USERNAME} -s /bin/bash && printf "${PASSWORD}\n${PASSWORD}\n" | passwd ${USERNAME} 2> /dev/null
