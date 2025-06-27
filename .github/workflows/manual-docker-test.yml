@@ -44,9 +44,8 @@ jobs:
         docker run cve-2020-7247 sh -c "/etc/init.d/opensmtpd start"
         #Local privilege escalatioin
         docker run cve-2020-7247 sh -c "apt-get install -y gcc -qq && su toto && whoami"
-        docker run cve-2020-7247 sh -c "ls /tmp  && ls /tmpt/decret"
-        #The exploits seem to be not present
-        docker run cve-2020-7247 sh -c "perl /tmp/decret/exploit_0_verified LPE && whoami"
+        #Run LPE exploit
+        docker run cve-2020-7247 sh -c "perl /tmp/decret_copy/exploit_0_verified LPE && whoami"
 
 
 
