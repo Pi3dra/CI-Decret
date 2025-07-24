@@ -80,6 +80,6 @@ jobs:
         run : | 
           #The username has to be lowercase for GHCR to accept it 
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          docker tag "${{ matrix.distro }}/${{matrix.cve}}" "ghcr.io/$OWNER_LOWER/decret/${{matrix.cve}}:latest"
-          docker push "ghcr.io/$OWNER_LOWER/decret/${{matrix.cve}}:latest"
+          docker tag "${{ matrix.distro }}/${{matrix.cve}}" "ghcr.io/$OWNER_LOWER/ci-decret/${{matrix.cve}}:latest"
+          docker push "ghcr.io/$OWNER_LOWER/ci-decret/${{matrix.cve}}:latest"
 
